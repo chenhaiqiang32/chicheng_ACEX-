@@ -1,0 +1,28 @@
+{
+  "name": "acex-web-hosting-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ACEX multi-package: server CLI convert + frontend unzip & open",
+  "scripts": {
+    "install:browser": "playwright install chromium",
+    "convert": "node scripts/convert.mjs",
+    "server": "node server/index.mjs",
+    "dev": "vite --config frontend/vite.config.js",
+    "build": "vite build --config frontend/vite.config.js",
+    "start": "node server/index.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@mlightcad/cad-simple-viewer-cli": "^1.7.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "fflate": "^0.8.3",
+    "multer": "^2.3.0"
+  },
+  "devDependencies": {
+    "vite": "^8.2.2"
+  }
+}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ACEX 预渲染看图 · 转换 + 前端解压</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">cad-html-plugin · multi ACEX</p>
+        <h1>服务端转换 · 前端解压打开</h1>
+        <p class="lead">
+          方式二用
+          <code>@mlightcad/cad-simple-viewer-cli</code>
+          把 DWG/DXF 转成 multi zip；再由服务端解压托管到
+          <code>/packages/…</code>，局域网内可直接分享打开链接。
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="convert-title">
+        <h2 id="convert-title">1. 上传图纸转换</h2>
+        <p class="hint">需要本机已启动转换服务（npm run server），并已安装 Chromium。</p>
+        <form id="convert-form" class="row">
+          <label class="file">
+            <input id="dwg-input" type="file" accept=".dwg,.dxf" required />
+            <span>选择 .dwg / .dxf</span>
+          </label>
+          <button type="submit" id="convert-btn">转换并下载 ZIP</button>
+        </form>
+        <p id="convert-status" class="status" role="status"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="open-title">
+        <h2 id="open-title">2. 前端解压并打开</h2>
+        <p class="hint">
+          选择 multi ACEX <code>.zip</code>。将上传到服务端解压并托管（不依赖 Service Worker，局域网可用）。
+        </p>
+        <form id="open-form" class="row">
+          <label class="file">
+            <input id="zip-input" type="file" accept=".zip,application/zip" required />
+            <span>选择 ACEX .zip</span>
+          </label>
+          <button type="submit" id="open-btn">解压并打开</button>
+        </form>
+        <p id="open-status" class="status" role="status"></p>
+        <ul id="file-list" class="file-list" hidden></ul>
+      </section>
+
+      <section class="panel muted">
+        <h2>说明</h2>
+        <ul>
+          <li>Zip 只用于分发；查看器 fetch 的是解压后的 <code>viewer.html</code> + <code>drawing.acex.json</code> + <code>chunks/</code>。</li>
+          <li><code>.gz</code> 块必须以原始字节返回，不要带 <code>Content-Encoding: gzip</code>。</li>
+          <li>也可在转换时加 <code>?publish=1</code> 让服务端解压并托管到 <code>/packages/…</code>。</li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

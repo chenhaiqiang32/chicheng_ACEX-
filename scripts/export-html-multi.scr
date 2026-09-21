@@ -1,0 +1,9 @@
+; 导出多文件 ACEX 包（zip）
+; 提示顺序：导出格式 / 导出关闭图层 / 导出布局 / 初始视图 / 查看器模式
+-chtml
+Multi
+Yes
+Yes
+Extents
+Measure
+quit

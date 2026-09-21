@@ -1,0 +1,7 @@
+node_modules/
+.cad-work/
+published/
+frontend/dist/
+out/
+*.log
+.DS_Store

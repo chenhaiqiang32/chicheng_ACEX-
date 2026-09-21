@@ -1,0 +1,147 @@
+:root {
+  color-scheme: light;
+  --bg: #0f1c24;
+  --panel: #162832;
+  --ink: #e8f1f4;
+  --muted: #9bb0ba;
+  --accent: #2bb3a3;
+  --accent-ink: #04201c;
+  --line: rgba(232, 241, 244, 0.12);
+  --danger: #ff8f8f;
+  font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, #1e4a4a 0%, transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, #243a55 0%, transparent 50%),
+    var(--bg);
+}
+
+.page {
+  width: min(860px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 3rem 0 4rem;
+}
+
+.hero h1 {
+  margin: 0.35rem 0 0.75rem;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+  letter-spacing: 0.01em;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--accent);
+  font-size: 0.85rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lead,
+.hint {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.panel {
+  margin-top: 1.25rem;
+  padding: 1.25rem 1.35rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--panel) 92%, black);
+}
+
+.panel.muted {
+  background: transparent;
+}
+
+.panel h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.file {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.file input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  min-height: 2.5rem;
+  padding: 0 1.2rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+status,
+.status {
+  min-height: 1.4rem;
+  margin: 0.85rem 0 0;
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+
+.status.error {
+  color: var(--danger);
+}
+
+.file-list {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85rem;
+  max-height: 180px;
+  overflow: auto;
+}
+
+code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.9em;
+  color: #c9efe8;
+}
+
+ul {
+  line-height: 1.7;
+  color: var(--muted);
+}
