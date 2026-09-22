@@ -227,11 +227,12 @@ convertForm.addEventListener('submit', async (e) => {
       await openAcExZip(zipBuf, decodeURIComponent(zipName))
     }
   } catch (err) {
-    setStatus(
-      convertStatus,
-      err instanceof Error ? err.message : String(err),
-      true
-    )
+    const raw = err instanceof Error ? err.message : String(err)
+    const msg =
+      raw === 'Failed to fetch' || /NetworkError|ECONNREFUSED|proxy/i.test(raw)
+        ? `无法连接转换服务，请确认远程 http://121.43.236.150:8787 可达：${raw}`
+        : raw
+    setStatus(convertStatus, msg, true)
   } finally {
     convertBtn.disabled = false
   }

@@ -21,7 +21,7 @@
 
       <section class="panel" aria-labelledby="convert-title">
         <h2 id="convert-title">1. 上传图纸转换</h2>
-        <p class="hint">需要本机已启动转换服务（npm run server），并已安装 Chromium。</p>
+        <p class="hint">转换请求经 Vite 代理到远程服务 <code>http://121.43.236.150:8787</code>，大图可能需要数十秒到数分钟。</p>
         <form id="convert-form" class="row">
           <label class="file">
             <input id="dwg-input" type="file" accept=".dwg,.dxf" required />

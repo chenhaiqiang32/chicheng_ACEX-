@@ -60,6 +60,8 @@ my-drawing/
 
 ## API
 
+对接说明（拿 zip 继续开发）：[docs/convert-api.md](./docs/convert-api.md)
+
 `POST /api/convert`  
 - `multipart/form-data` 字段名：`file`  
 - 返回：`application/zip`  
