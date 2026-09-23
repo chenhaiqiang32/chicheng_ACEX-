@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 /** 已迁移的 ACEX 转换服务 */
-const CONVERT_SERVER = 'http://192.168.5.90:8787'
+const CONVERT_SERVER = 'http://121.43.236.150:8787'
 
 export default defineConfig({
   root: __dirname,
