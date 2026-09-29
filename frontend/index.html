@@ -3,31 +3,58 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ACEX 预渲染看图 · 转换 + 前端解压</title>
+    <title>ACEX 预渲染看图 · URL 导入转换</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="page">
       <header class="hero">
         <p class="eyebrow">cad-html-plugin · multi ACEX</p>
-        <h1>服务端转换 · 前端解压打开</h1>
+        <h1>URL 导入 · 轮询 · 下载 ZIP</h1>
         <p class="lead">
-          方式二用
-          <code>@mlightcad/cad-simple-viewer-cli</code>
-          把 DWG/DXF 转成 multi zip；再由服务端解压托管到
-          <code>/packages/…</code>，局域网内可直接分享打开链接。
+          按对接文档三步调用：
+          <code>POST /api/models/import</code>
+          →
+          <code>GET …/status</code>
+          →
+          <code>GET …/download?type=zip</code>；
+          再由服务端解压托管到
+          <code>/packages/…</code>。
         </p>
       </header>
 
       <section class="panel" aria-labelledby="convert-title">
-        <h2 id="convert-title">1. 上传图纸转换</h2>
-        <p class="hint">转换请求经 Vite 代理到远程服务 <code>http://121.43.236.150:8787</code>，大图可能需要数十秒到数分钟。</p>
-        <form id="convert-form" class="row">
-          <label class="file">
-            <input id="dwg-input" type="file" accept=".dwg,.dxf" required />
-            <span>选择 .dwg / .dxf</span>
+        <h2 id="convert-title">1. 按 URL 导入转换</h2>
+        <p class="hint">
+          提交可访问的 <code>.dwg</code> / <code>.dxf</code> 在线地址；服务异步下载并转换，前端轮询
+          <code>status</code>（<code>null</code> 转换中 / <code>ready</code> 成功 /
+          <code>failed</code> 失败）。
+        </p>
+        <form id="convert-form" class="stack">
+          <label class="field">
+            <span>图纸 URL</span>
+            <input
+              id="dwg-url"
+              type="url"
+              name="url"
+              required
+              placeholder="https://oss.example.com/canteen.dwg"
+              autocomplete="off"
+            />
           </label>
-          <button type="submit" id="convert-btn">转换并下载 ZIP</button>
+          <label class="field">
+            <span>文件名（可选，含扩展名）</span>
+            <input
+              id="dwg-filename"
+              type="text"
+              name="filename"
+              placeholder="canteen.dwg"
+              autocomplete="off"
+            />
+          </label>
+          <div class="row">
+            <button type="submit" id="convert-btn">提交导入并等待结果</button>
+          </div>
         </form>
         <p id="convert-status" class="status" role="status"></p>
       </section>
@@ -51,9 +78,9 @@
       <section class="panel muted">
         <h2>说明</h2>
         <ul>
+          <li>转换成功后下载地址为 <code>/api/models/{jobId}/download?type=zip</code>。</li>
           <li>Zip 只用于分发；查看器 fetch 的是解压后的 <code>viewer.html</code> + <code>drawing.acex.json</code> + <code>chunks/</code>。</li>
           <li><code>.gz</code> 块必须以原始字节返回，不要带 <code>Content-Encoding: gzip</code>。</li>
-          <li>也可在转换时加 <code>?publish=1</code> 让服务端解压并托管到 <code>/packages/…</code>。</li>
         </ul>
       </section>
     </main>

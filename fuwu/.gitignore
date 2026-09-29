@@ -1,0 +1,6 @@
+node_modules/
+.cad-work/
+published/
+out/
+*.log
+.DS_Store

@@ -1,20 +1,23 @@
 /**
- * 前端打开 ACEX zip：
- * - 局域网 HTTP 无 Service Worker → 上传到服务端解压托管 /packages/{id}/
- * - localhost 安全上下文 → 仍可用 SW 虚拟目录（可选）
+ * 前端 Demo：
+ * 1) URL 导入转换：import → 轮询 status → download zip
+ * 2) 打开 zip：上传到服务端解压托管 /packages/{id}/
  */
 import { unzipAcExPackageFiles } from './unzipAcEx.js'
 
 const convertForm = document.getElementById('convert-form')
 const convertStatus = document.getElementById('convert-status')
 const convertBtn = document.getElementById('convert-btn')
-const dwgInput = document.getElementById('dwg-input')
+const dwgUrl = document.getElementById('dwg-url')
+const dwgFilename = document.getElementById('dwg-filename')
 
 const openForm = document.getElementById('open-form')
 const openStatus = document.getElementById('open-status')
 const openBtn = document.getElementById('open-btn')
 const zipInput = document.getElementById('zip-input')
 const fileList = document.getElementById('file-list')
+
+const POLL_MS = 1500
 
 function setStatus(el, text, isError = false) {
   el.textContent = text
@@ -65,7 +68,6 @@ async function ensureServiceWorker() {
       }
       navigator.serviceWorker.addEventListener('controllerchange', onChange)
       reg.waiting?.postMessage({ type: 'SKIP_WAITING' })
-      // 兜底：已控制或超时
       setTimeout(resolve, 1500)
     })
   }
@@ -147,12 +149,7 @@ async function openViaServiceWorker(zipBytes, label = 'package') {
   return viewerUrl
 }
 
-/**
- * 优先服务端托管（局域网可分享）；仅在明确可用 SW 且失败时再回退。
- * 默认走服务端，保证 http://192.168.x.x 可访问。
- */
 async function openAcExZip(zipBytes, label = 'package') {
-  // 局域网场景：始终服务端托管，他人可直接打开同一 URL
   try {
     return await openViaServerPublish(zipBytes, label)
   } catch (serverErr) {
@@ -167,70 +164,131 @@ async function openAcExZip(zipBytes, label = 'package') {
   }
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * 提交 URL 导入，返回 jobId
+ * @returns {Promise<{ jobId: string }>}
+ */
+async function submitImport(url, filename) {
+  const body = { url }
+  if (filename) body.filename = filename
+
+  const res = await fetch('/api/models/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(json.message || json.error || `HTTP ${res.status}`)
+  }
+  const jobId = json.data?.jobId
+  if (!jobId) throw new Error('导入接口未返回 jobId')
+  return { jobId }
+}
+
+/**
+ * 轮询直到 ready / failed
+ * status === null 表示转换中
+ */
+async function pollUntilDone(jobId, onProgress) {
+  for (;;) {
+    const res = await fetch(`/api/models/import/${jobId}/status`)
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(json.message || `status HTTP ${res.status}`)
+    }
+    const data = json.data || {}
+    const status = data.status
+
+    if (status === 'ready') return data
+    if (status === 'failed') {
+      throw new Error(data.errorMessage || 'conversion failed')
+    }
+
+    // status === null → 转换中
+    onProgress?.(data)
+    await sleep(POLL_MS)
+  }
+}
+
+async function downloadZip(jobId) {
+  const res = await fetch(`/api/models/${jobId}/download?type=zip`)
+  if (!res.ok) {
+    let msg = `download HTTP ${res.status}`
+    try {
+      const j = await res.json()
+      msg = j.message || msg
+    } catch {
+      /* ignore */
+    }
+    throw new Error(msg)
+  }
+
+  const zipBuf = await res.arrayBuffer()
+  const zipName =
+    (
+      res.headers.get('Content-Disposition') || ''
+    ).match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1] || `${jobId}.zip`
+
+  return { zipBuf, zipName: decodeURIComponent(zipName) }
+}
+
+function triggerDownload(zipBuf, zipName) {
+  const blob = new Blob([zipBuf], { type: 'application/zip' })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = zipName
+  a.click()
+  URL.revokeObjectURL(a.href)
+}
+
 convertForm.addEventListener('submit', async (e) => {
   e.preventDefault()
-  const file = dwgInput.files?.[0]
-  if (!file) return
+  const url = dwgUrl.value.trim()
+  if (!url) return
+  const filename = dwgFilename.value.trim() || undefined
 
   convertBtn.disabled = true
-  setStatus(convertStatus, `正在上传并转换：${file.name}（可能需要数十秒）…`)
+  setStatus(convertStatus, `正在提交导入：${filename || url}…`)
 
   try {
-    const body = new FormData()
-    body.append('file', file, file.name)
+    const { jobId } = await submitImport(url, filename)
+    setStatus(
+      convertStatus,
+      `已受理 jobId=${jobId}\n正在轮询转换状态（转换中 status=null）…`
+    )
 
-    // publish=1：转换同时解压到 /packages，返回可分享链接
-    const res = await fetch('/api/convert?publish=1', {
-      method: 'POST',
-      body,
-      headers: { Accept: 'application/zip' }
+    const started = Date.now()
+    const result = await pollUntilDone(jobId, () => {
+      const sec = Math.round((Date.now() - started) / 1000)
+      setStatus(
+        convertStatus,
+        `jobId=${jobId}\n转换中（status=null）… 已等待 ${sec}s`
+      )
     })
 
-    if (!res.ok) {
-      let msg = `HTTP ${res.status}`
-      try {
-        const j = await res.json()
-        msg = j.error || msg
-      } catch {
-        /* ignore */
-      }
-      throw new Error(msg)
-    }
+    setStatus(
+      convertStatus,
+      `转换成功（ready）。fileId=${result.fileId || '-'}\n正在下载 zip…`
+    )
 
-    const packageUrl = res.headers.get('X-Package-Url')
-    const zipBuf = await res.arrayBuffer()
-    const zipName =
-      (
-        res.headers.get('Content-Disposition') || ''
-      ).match(/filename\*?=(?:UTF-8''|")?([^";]+)/i)?.[1] ||
-      file.name.replace(/\.(dwg|dxf)$/i, '') + '.zip'
+    const { zipBuf, zipName } = await downloadZip(jobId)
+    triggerDownload(zipBuf, zipName)
 
-    const blob = new Blob([zipBuf], { type: 'application/zip' })
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(blob)
-    a.download = decodeURIComponent(zipName)
-    a.click()
-    URL.revokeObjectURL(a.href)
-
-    if (packageUrl) {
-      const shareUrl = new URL(packageUrl, location.origin).href
-      setStatus(
-        convertStatus,
-        `转换成功。ZIP 已下载。\n局域网分享链接：\n${shareUrl}`
-      )
-      window.open(packageUrl, '_blank', 'noopener,noreferrer')
-    } else {
-      setStatus(
-        convertStatus,
-        `转换成功：${decodeURIComponent(zipName)}。正在托管打开…`
-      )
-      await openAcExZip(zipBuf, decodeURIComponent(zipName))
-    }
+    setStatus(
+      convertStatus,
+      `转换成功：${zipName}\nfileId=${result.fileId || '-'}\n正在托管打开…`
+    )
+    await openAcExZip(zipBuf, zipName)
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err)
     const msg =
       raw === 'Failed to fetch' || /NetworkError|ECONNREFUSED|proxy/i.test(raw)
-        ? `无法连接转换服务，请确认远程 http://121.43.236.150:8787 可达：${raw}`
+        ? `无法连接转换服务，请确认远程代理目标可达：${raw}`
         : raw
     setStatus(convertStatus, msg, true)
   } finally {

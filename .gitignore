@@ -1,7 +1,6 @@
 node_modules/
+frontend/dist/
 .cad-work/
 published/
-frontend/dist/
-out/
 *.log
 .DS_Store

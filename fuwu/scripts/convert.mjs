@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * 方式二：服务端 / CI 批量转换
+ * 服务端 / CI 批量转换
  * 使用 @mlightcad/cad-simple-viewer-cli 无头导出 multi ACEX zip
  *
  * Usage:
  *   node scripts/convert.mjs <drawing.dwg|dxf|dir> [outputDir]
  *   npm run convert -- ./drawings ./out
  */
-import { runHeadless } from '@mlightcad/cad-simple-viewer-cli'
+import { runHeadless } from '../lib/runHeadlessLocal.mjs'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
