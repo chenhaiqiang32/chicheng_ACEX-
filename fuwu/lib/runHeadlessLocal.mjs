@@ -1,6 +1,6 @@
 /**
  * 基于 @mlightcad/cad-simple-viewer-cli 的 runHeadless，
- * 将 headless 页面对 CDN cad-data 的请求全部改为本地 fuwu/cad-data（不回退外网）。
+ * 通过 baseUrl './cad-data/' 加载本机 fuwu/cad-data（字体/模板），不走 CDN。
  *
  * 目录结构与官方一致：fonts/、templates/、fonts/fonts.json
  * 参考：https://github.com/mlightcad/cad-viewer/wiki/Self-Hosted-Fonts-and-Templates
@@ -27,9 +27,8 @@ const RUNNER_DIR = path.join(CLI_ROOT, 'dist-runner')
 const FUWU_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const CAD_DATA = path.join(FUWU_ROOT, 'cad-data')
 
-/** jsDelivr / raw.githubusercontent 上的 mlightcad/cad-data */
-const REMOTE_CAD_DATA_RE =
-  /(?:cdn\.jsdelivr\.net\/gh\/mlightcad\/cad-data(?:@[^/]+)?|raw\.githubusercontent\.com\/mlightcad\/cad-data\/[^/]+)\/(.*)$/i
+/** CLI baseUrl：相对 runner 页路径，静态服务已挂 /cad-data/ → 本地 CAD_DATA */
+const LOCAL_CAD_DATA_BASE_URL = './cad-data/'
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -73,14 +72,6 @@ function resolveUnderRoot(root, relativeUrlPath) {
   return filePath
 }
 
-function localCadDataPathFromRemoteUrl(urlString) {
-  const match = String(urlString).match(REMOTE_CAD_DATA_RE)
-  if (!match) return null
-  const rel = decodeURIComponent(match[1].split('?')[0])
-  if (!rel || rel.includes('..') || path.isAbsolute(rel)) return null
-  return resolveUnderRoot(CAD_DATA, rel)
-}
-
 function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
   const idleTimeoutMs = Number(opts.idleTimeoutMs) > 0 ? Number(opts.idleTimeoutMs) : 600_000
 
@@ -92,10 +83,14 @@ function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
     }
     let text = body.toString('utf8')
     const before = text
-    // CLI：const rge=12e4 → 自定义毫秒
+    // CLI / 转换：常量 12e4（120s）→ 自定义毫秒（1.7.4: Tre / XRe；1.7.3: Qie / K3e；1.7.1: rge / fke）
+    text = text.replace(/\bTre=12e4\b/g, `Tre=${idleTimeoutMs}`)
+    text = text.replace(/\bXRe=12e4\b/g, `XRe=${idleTimeoutMs}`)
+    text = text.replace(/\bQie=12e4\b/g, `Qie=${idleTimeoutMs}`)
+    text = text.replace(/\bK3e=12e4\b/g, `K3e=${idleTimeoutMs}`)
     text = text.replace(/const rge=12e4\b/g, `const rge=${idleTimeoutMs}`)
     text = text.replace(/const fke=12e4\b/g, `const fke=${idleTimeoutMs}`)
-    // View：waitUntilIdle(t=6e4) 默认 60s
+    // View：waitUntilIdle(t|e=6e4) 默认 60s
     text = text.replace(/waitUntilIdle\(t=6e4\)/g, `waitUntilIdle(t=${idleTimeoutMs})`)
     text = text.replace(/waitUntilIdle\(e=6e4\)/g, `waitUntilIdle(e=${idleTimeoutMs})`)
     if (text !== before) {
@@ -658,7 +653,7 @@ export async function runHeadless(options) {
   )
 
   const server = await startStaticServer(RUNNER_DIR, CAD_DATA, { idleTimeoutMs })
-  const localCadDataBaseUrl = `${server.url}/cad-data/`
+  const localCadDataBaseUrl = LOCAL_CAD_DATA_BASE_URL
   const { browser, channel, executablePath, args } = await launchBrowser()
   let browserVersion = '?'
   try {
@@ -676,7 +671,7 @@ export async function runHeadless(options) {
   )
 
   const savedFiles = []
-  let remoteMisses = 0
+  let cadDataMisses = 0
   /** @type {string[]} */
   const missSamples = []
   /** @type {string[]} */
@@ -709,59 +704,19 @@ export async function runHeadless(options) {
       pageMessages.push(line)
       console.error(`[convert] ${line}`)
     })
-
-    await page.route(REMOTE_CAD_DATA_RE, async (route) => {
-      const reqUrl = route.request().url()
-      const filePath = localCadDataPathFromRemoteUrl(reqUrl)
-      if (!filePath || !existsSync(filePath)) {
-        remoteMisses++
-        if (missSamples.length < 20) missSamples.push(reqUrl)
-        console.warn(`[convert] local cad-data miss (no CDN fallback): ${reqUrl}`)
-        await appendLog(logfile, `[convert] local cad-data miss: ${reqUrl}`)
-        await route.fulfill({
-          status: 404,
-          headers: { 'access-control-allow-origin': '*' },
-          body: ''
-        })
-        return
+    page.on('response', (res) => {
+      try {
+        const u = res.url()
+        if (!/\/cad-data\//i.test(u)) return
+        if (res.status() < 400) return
+        cadDataMisses++
+        if (missSamples.length < 20) missSamples.push(`${res.status()} ${u}`)
+        console.warn(`[convert] local cad-data miss: ${res.status()} ${u}`)
+        void appendLog(logfile, `[convert] local cad-data miss: ${res.status()} ${u}`)
+      } catch {
+        // ignore
       }
-      const body = await readFile(filePath)
-      await route.fulfill({
-        status: 200,
-        headers: {
-          'content-type': contentTypeFor(filePath),
-          'access-control-allow-origin': '*'
-        },
-        body
-      })
     })
-
-    await page.addInitScript((baseUrl) => {
-      const rewrite = (url) => {
-        const s = String(url)
-        const m = s.match(
-          /(?:cdn\.jsdelivr\.net\/gh\/mlightcad\/cad-data(?:@[^/]+)?|raw\.githubusercontent\.com\/mlightcad\/cad-data\/[^/]+)\/(.*)$/i
-        )
-        if (!m) return null
-        return baseUrl + m[1].split('?')[0]
-      }
-      const origFetch = window.fetch.bind(window)
-      window.fetch = (input, init) => {
-        const raw =
-          typeof input === 'string'
-            ? input
-            : input instanceof Request
-              ? input.url
-              : String(input)
-        const local = rewrite(raw)
-        if (!local) return origFetch(input, init)
-        if (typeof input === 'string') return origFetch(local, init)
-        if (input instanceof Request) {
-          return origFetch(new Request(local, input), init)
-        }
-        return origFetch(local, init)
-      }
-    }, localCadDataBaseUrl)
 
     await dbg(logfile, `goto ${server.url}/index.html baseUrl=${localCadDataBaseUrl}`)
     await page.goto(`${server.url}/index.html`, { waitUntil: 'networkidle' })
@@ -883,7 +838,7 @@ export async function runHeadless(options) {
           await dbg(
             logfile,
             `WARN 大图纸但 totalBatches=${after.totalBatches} 过少，疑似转换不完整 ` +
-              `(fontMisses=${remoteMisses} pageMsgs=${pageMessages.length})`,
+              `(fontMisses=${cadDataMisses} pageMsgs=${pageMessages.length})`,
             'warn'
           )
         }
@@ -897,21 +852,21 @@ export async function runHeadless(options) {
       await dbg(logfile, `page messages (${pageMessages.length}):`)
       for (const m of pageMessages.slice(-50)) await appendLog(logfile, `  ${m}`)
     }
-    if (remoteMisses > 0) {
+    if (cadDataMisses > 0) {
       await dbg(
         logfile,
-        `cad-data misses=${remoteMisses} samples=${JSON.stringify(missSamples)}`,
+        `cad-data misses=${cadDataMisses} samples=${JSON.stringify(missSamples)}`,
         'warn'
       )
       console.warn(
-        `[convert] ${remoteMisses} cad-data asset(s) missing locally (served 404, no CDN)`
+        `[convert] ${cadDataMisses} cad-data asset(s) missing locally`
       )
     }
 
     await dbg(
       logfile,
       `=== convert done in ${Date.now() - t0}ms saved=${savedFiles.length} ` +
-        `localMisses=${remoteMisses} log=${logfile} ===`
+        `localMisses=${cadDataMisses} log=${logfile} ===`
     )
     return { outputDir, savedFiles, logfile }
   } finally {

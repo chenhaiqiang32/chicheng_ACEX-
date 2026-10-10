@@ -8,7 +8,7 @@
 fuwu/
   index.mjs                 # HTTP 转换服务入口
   lib/
-    runHeadlessLocal.mjs    # 无头转换：强制使用本地 cad-data（不访问 CDN）
+    runHeadlessLocal.mjs    # 无头转换：baseUrl './cad-data/' 本地字体/模板
     sanitizeAcexOutliers.mjs # 转换后剔除离群垃圾坐标并重写 viewExtents
   package.json
   cad-data/                 # 自托管字体与模板（转换 + 静态 /cad-data）
@@ -26,7 +26,7 @@ fuwu/
 实现方式对齐 [Self-Hosted Fonts and Templates](https://github.com/mlightcad/cad-viewer/wiki/Self-Hosted-Fonts-and-Templates)：
 
 - 目录：`cad-data/fonts/`、`cad-data/templates/`、`cad-data/fonts/fonts.json`
-- Headless 内把 CDN `cad-data` 请求拦截并落到本地文件
+- Headless 通过 CLI `baseUrl: './cad-data/'` 加载本地资源
 - HTTP 同时托管 `GET /cad-data/...`，便于前端 Viewer 同样自托管
 
 部署时请一并拷贝完整 `cad-data/`（尤其 `fonts/`）。

@@ -7,10 +7,8 @@
  *
  * 本目录可单独拷贝到服务器部署（见 README.md）。
  */
-import { unzipSync } from 'fflate'
 import cors from 'cors'
 import express from 'express'
-import multer from 'multer'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -18,14 +16,12 @@ import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runHeadless } from './lib/runHeadlessLocal.mjs'
-import { sanitizeAcexZipFile } from './lib/sanitizeAcexOutliers.mjs'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const WORK = path.join(ROOT, '.cad-work')
-const PUBLISH = path.join(ROOT, 'published')
 const CAD_DATA = path.join(ROOT, 'cad-data')
 const SCRIPT = path.join(ROOT, 'scripts', 'export-html-multi.scr')
-const PORT = Number(process.env.PORT || 8787)
+const PORT = Number(process.env.PORT || 8788)
 const FONTS_JSON = path.join(CAD_DATA, 'fonts', 'fonts.json')
 
 /** @typedef {'pending'|'downloading'|'converting'|'ready'|'failed'} JobPhase */
@@ -44,66 +40,6 @@ const FONTS_JSON = path.join(CAD_DATA, 'fonts', 'fonts.json')
 
 /** @type {Map<string, ImportJob>} */
 const jobs = new Map()
-
-function isSafeZipPath(p) {
-  if (!p || p.startsWith('/') || p.includes('\\') || p.includes('\0')) return false
-  return p.split('/').every(
-    (part) =>
-      part.length > 0 &&
-      part !== '.' &&
-      part !== '..' &&
-      /^[A-Za-z0-9._-]+$/.test(part)
-  )
-}
-
-/** 与 cad-html-plugin 的 unzipAcExPackageFiles 同语义 */
-function unzipAcExPackageFiles(bytes) {
-  const entries = unzipSync(bytes)
-  const files = []
-  for (const [filePath, data] of Object.entries(entries)) {
-    if (!isSafeZipPath(filePath)) {
-      throw new Error('Unsafe path in package archive')
-    }
-    files.push({ path: filePath, bytes: data })
-  }
-  return files
-}
-
-const upload = multer({
-  dest: path.join(WORK, 'uploads'),
-  limits: { fileSize: 200 * 1024 * 1024 }
-})
-
-function zipFilter(_req, file, cb) {
-  const ext = path.extname(file.originalname).toLowerCase()
-  const ok =
-    ext === '.zip' ||
-    file.mimetype === 'application/zip' ||
-    file.mimetype === 'application/x-zip-compressed'
-  if (ok) cb(null, true)
-  else cb(new Error('Only .zip allowed'))
-}
-
-async function publishZipBytes(zipBytes, jobId = randomUUID()) {
-  const target = path.join(PUBLISH, jobId)
-  const files = unzipAcExPackageFiles(new Uint8Array(zipBytes))
-  const hasViewer = files.some((f) => f.path === 'viewer.html')
-  const hasManifest = files.some((f) => f.path === 'drawing.acex.json')
-  if (!hasViewer || !hasManifest) {
-    throw new Error('Invalid multi ACEX package (need viewer.html + drawing.acex.json)')
-  }
-  for (const file of files) {
-    const dest = path.join(target, file.path)
-    await mkdir(path.dirname(dest), { recursive: true })
-    await writeFile(dest, file.bytes)
-  }
-  return {
-    jobId,
-    packageUrl: `/packages/${jobId}/viewer.html`,
-    fileCount: files.length,
-    files: files.map((f) => f.path)
-  }
-}
 
 function isHttpUrl(value) {
   return /^https?:\/\//i.test(String(value || '').trim())
@@ -213,8 +149,7 @@ async function processImportJob(job, url, filename, headers) {
 
     job.zipPath = zipPath
     job.zipName = path.basename(zipPath)
-    // 转换结束再兜底清洗一次（防止 runner 路径漏跑）
-    await sanitizeAcexZipFile(zipPath)
+    // sanitize 已在 runHeadless 导出 zip 后执行；勿再跑第二次（MAD 非幂等会级联误删）
     job.phase = 'ready'
     job.errorMessage = null
   } catch (err) {
@@ -231,9 +166,7 @@ async function processImportJob(job, url, filename, headers) {
   }
 }
 
-await mkdir(path.join(WORK, 'uploads'), { recursive: true })
 await mkdir(path.join(WORK, 'out'), { recursive: true })
-await mkdir(PUBLISH, { recursive: true })
 
 const app = express()
 app.use(cors())
@@ -357,8 +290,25 @@ app.get('/api/models/import/:jobId/status', (req, res) => {
 })
 
 /**
+ * 下载成功后删除该任务在 .cad-work/out 下的全部留存（源图纸 / zip / convert.log）
+ * @param {ImportJob} job
+ */
+async function cleanupJobOutDir(job) {
+  const outDir = path.join(WORK, 'out', job.jobId)
+  job.zipPath = null
+  job.zipName = null
+  try {
+    await rm(outDir, { recursive: true, force: true })
+    console.log(`[import ${job.jobId}] cleaned ${outDir} after download`)
+  } catch (err) {
+    console.error(`[import ${job.jobId}] cleanup failed:`, err)
+  }
+}
+
+/**
  * GET /api/models/:jobId/download?type=zip
  * 转换成功后下载 multi ACEX zip（jobId 为 import 返回值）
+ * 响应写完后删除 .cad-work/out/<jobId>（一次性下载，不可重复拉取）
  */
 app.get('/api/models/:jobId/download', async (req, res) => {
   const job = jobs.get(req.params.jobId)
@@ -377,7 +327,9 @@ app.get('/api/models/:jobId/download', async (req, res) => {
       message:
         job.phase === 'failed'
           ? job.errorMessage || 'conversion failed'
-          : 'job not ready',
+          : !job.zipPath
+            ? 'zip already downloaded and removed'
+            : 'job not ready',
       data: {
         jobId: job.jobId,
         status: publicStatus(job)
@@ -413,6 +365,10 @@ app.get('/api/models/:jobId/download', async (req, res) => {
       'Content-Disposition',
       `attachment; filename="${encodeURIComponent(baseName)}.zip"`
     )
+    // 响应刷出后再删盘：业务侧已拿到字节流；重复 download 将 409
+    res.once('finish', () => {
+      void cleanupJobOutDir(job)
+    })
     res.send(Buffer.from(zipBytes))
   } catch (err) {
     console.error(err)
@@ -423,58 +379,6 @@ app.get('/api/models/:jobId/download', async (req, res) => {
     })
   }
 })
-
-/**
- * POST /api/publish-zip
- * 局域网场景：前端上传 multi zip，服务端解压后静态托管
- */
-app.post('/api/publish-zip', upload.single('file'), async (req, res) => {
-  if (!req.file) {
-    res.status(400).json({ error: 'Missing file field "file"' })
-    return
-  }
-
-  try {
-    await new Promise((resolve, reject) => {
-      zipFilter(req, req.file, (err) => (err ? reject(err) : resolve()))
-    })
-  } catch (err) {
-    await rm(req.file.path, { force: true })
-    res.status(400).json({ error: err.message })
-    return
-  }
-
-  try {
-    const zipBytes = await readFile(req.file.path)
-    await rm(req.file.path, { force: true })
-    const published = await publishZipBytes(zipBytes)
-    res.json(published)
-  } catch (err) {
-    console.error(err)
-    res.status(500).json({
-      error: err instanceof Error ? err.message : String(err)
-    })
-  }
-})
-
-app.use(
-  '/packages',
-  express.static(PUBLISH, {
-    setHeaders(res, filePath) {
-      if (/\.(acex|osnap)\.gz$/i.test(filePath)) {
-        res.setHeader('Content-Type', 'application/octet-stream')
-        res.removeHeader('Content-Encoding')
-        res.setHeader(
-          'Cache-Control',
-          'public, max-age=31536000, immutable'
-        )
-      } else if (/\.acex\.json$/i.test(filePath)) {
-        res.setHeader('Content-Type', 'application/json')
-        res.setHeader('Cache-Control', 'no-cache')
-      }
-    }
-  })
-)
 
 function lanAddresses(port) {
   const nets = networkInterfaces()
@@ -498,7 +402,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`  POST /api/models/import`)
   console.log(`  GET  /api/models/import/:jobId/status`)
   console.log(`  GET  /api/models/:jobId/download?type=zip`)
-  console.log(`  POST /api/publish-zip  (multipart field: file)`)
-  console.log(`  GET  /packages/:id/viewer.html`)
   console.log(`  GET  /cad-data/fonts/fonts.json  (local fonts, no CDN)`)
 })

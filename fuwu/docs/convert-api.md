@@ -169,6 +169,8 @@ GET /api/models/:jobId/download?type=zip
 | Body | zip 二进制 |
 | `Content-Disposition` | `attachment; filename="<名称>.zip"` |
 
+**一次性下载：** 响应写完后服务端会删除该任务在 `.cad-work/out/<jobId>/` 下的留存（源图纸、zip、日志）。同一 `jobId` 再次下载会 `409`（`zip already downloaded and removed`）。业务侧请自行保存 zip。
+
 ### 返回（未就绪 / 失败）
 
 ```json

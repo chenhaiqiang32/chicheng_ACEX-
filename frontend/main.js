@@ -1,7 +1,7 @@
 /**
  * 前端 Demo：
  * 1) URL 导入转换：import → 轮询 status → download zip
- * 2) 打开 zip：上传到服务端解压托管 /packages/{id}/
+ * 2) 打开 zip：浏览器本地解压 + Service Worker 虚拟目录（不落盘 published）
  */
 import { unzipAcExPackageFiles } from './unzipAcEx.js'
 
@@ -74,37 +74,7 @@ async function ensureServiceWorker() {
   return reg
 }
 
-/** 上传 zip → 服务端解压 → /packages/{id}/viewer.html（局域网可用） */
-async function openViaServerPublish(zipBytes, label = 'package') {
-  setStatus(openStatus, '正在上传到服务端并解压托管…')
-  const body = new FormData()
-  body.append(
-    'file',
-    new Blob([zipBytes], { type: 'application/zip' }),
-    label.endsWith('.zip') ? label : `${label}.zip`
-  )
-
-  const res = await fetch('/api/publish-zip', { method: 'POST', body })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data.error || `HTTP ${res.status}`)
-  }
-
-  if (Array.isArray(data.files)) {
-    showFileList(data.files.map((path) => ({ path })))
-  }
-
-  const viewerUrl = data.packageUrl
-  const shareUrl = new URL(viewerUrl, location.origin).href
-  setStatus(
-    openStatus,
-    `已托管（${data.fileCount ?? '?'} 个文件）。局域网可分享：\n${shareUrl}`
-  )
-  window.open(viewerUrl, '_blank', 'noopener,noreferrer')
-  return viewerUrl
-}
-
-/** localhost：SW 虚拟目录打开 */
+/** 浏览器本地解压 + Service Worker 虚拟目录打开（不上传、不写 published） */
 async function openViaServiceWorker(zipBytes, label = 'package') {
   setStatus(openStatus, '正在解压…')
   const files = unzipAcExPackageFiles(new Uint8Array(zipBytes))
@@ -150,18 +120,12 @@ async function openViaServiceWorker(zipBytes, label = 'package') {
 }
 
 async function openAcExZip(zipBytes, label = 'package') {
-  try {
-    return await openViaServerPublish(zipBytes, label)
-  } catch (serverErr) {
-    if (!canUseServiceWorker()) {
-      throw serverErr
-    }
-    setStatus(
-      openStatus,
-      `服务端托管失败，尝试本地 Service Worker：${serverErr.message}`
+  if (!canUseServiceWorker()) {
+    throw new Error(
+      '当前环境无法使用 Service Worker（需 https 或 localhost），无法在浏览器内打开 zip'
     )
-    return openViaServiceWorker(zipBytes, label)
   }
+  return openViaServiceWorker(zipBytes, label)
 }
 
 function sleep(ms) {
@@ -281,7 +245,7 @@ convertForm.addEventListener('submit', async (e) => {
 
     setStatus(
       convertStatus,
-      `转换成功：${zipName}\nfileId=${result.fileId || '-'}\n正在托管打开…`
+      `转换成功：${zipName}\nfileId=${result.fileId || '-'}\n正在本地打开…`
     )
     await openAcExZip(zipBuf, zipName)
   } catch (err) {

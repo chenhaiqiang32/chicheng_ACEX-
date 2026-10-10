@@ -17,9 +17,8 @@
           →
           <code>GET …/status</code>
           →
-          <code>GET …/download?type=zip</code>；
-          再由服务端解压托管到
-          <code>/packages/…</code>。
+          <code>GET …/download?type=zip</code>。
+          本地 Demo 用 Service Worker 打开 zip，服务端不落盘预览。
         </p>
       </header>
 
@@ -62,7 +61,8 @@
       <section class="panel" aria-labelledby="open-title">
         <h2 id="open-title">2. 前端解压并打开</h2>
         <p class="hint">
-          选择 multi ACEX <code>.zip</code>。将上传到服务端解压并托管（不依赖 Service Worker，局域网可用）。
+          选择 multi ACEX <code>.zip</code>。在浏览器内解压并通过 Service Worker 打开（不写服务端
+          <code>published/</code>）。
         </p>
         <form id="open-form" class="row">
           <label class="file">
