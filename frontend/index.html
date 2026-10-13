@@ -18,7 +18,8 @@
           <code>GET …/status</code>
           →
           <code>GET …/download?type=zip</code>。
-          本地 Demo 用 Service Worker 打开 zip，服务端不落盘预览。
+          本地可用 zip 解压打开，或填写服务端
+          <code>drawing.acex.json</code> 地址打开。
         </p>
       </header>
 
@@ -75,11 +76,39 @@
         <ul id="file-list" class="file-list" hidden></ul>
       </section>
 
+      <section class="panel" aria-labelledby="json-open-title">
+        <h2 id="json-open-title">3. 通过 JSON 地址打开</h2>
+        <p class="hint">
+          服务端已解压落盘时，填写可访问的
+          <code>drawing.acex.json</code> 地址。将打开同目录
+          <code>viewer.html</code>，由查看器按相对路径拉取
+          <code>chunks/</code>。
+        </p>
+        <form id="json-open-form" class="stack">
+          <label class="field">
+            <span>drawing.acex.json URL</span>
+            <input
+              id="json-url"
+              type="url"
+              name="jsonUrl"
+              required
+              placeholder="https://example.com/published/canteen/drawing.acex.json"
+              autocomplete="off"
+            />
+          </label>
+          <div class="row">
+            <button type="submit" id="json-open-btn">打开查看器</button>
+          </div>
+        </form>
+        <p id="json-open-status" class="status" role="status"></p>
+      </section>
+
       <section class="panel muted">
         <h2>说明</h2>
         <ul>
           <li>转换成功后下载地址为 <code>/api/models/{jobId}/download?type=zip</code>。</li>
           <li>Zip 只用于分发；查看器 fetch 的是解压后的 <code>viewer.html</code> + <code>drawing.acex.json</code> + <code>chunks/</code>。</li>
+          <li>JSON 打开要求同目录存在 <code>viewer.html</code>，且 <code>chunks/</code> 相对路径可访问。</li>
           <li><code>.gz</code> 块必须以原始字节返回，不要带 <code>Content-Encoding: gzip</code>。</li>
         </ul>
       </section>

@@ -56,6 +56,12 @@ npm run server
 | --- | --- |
 | `cad-data fontFiles=` | 字体文件数量；过小说明 `cad-data/fonts` 没拷全 |
 | `local cad-data miss` / `localMisses=` | 字体 404，文字几何会丢 |
+| `[http 404] ...` / `[requestfailed]` | 写出具体缺失 URL（含非 cad-data，如 favicon） |
+| 部分中文乱码 / `?` | 图纸字体名未命中 `fonts.json` 别名，或 SHX 大字体缺 `encoding`；补别名/字体后重转 |
+| `drawing font ... catalogMiss=` / `missing=[...]` | 从图纸粗扫到的字体文件名不在本地目录 |
+| `viewer missedFonts=` | 转换引擎实际未加载成功的字体名（优先按这个补字体） |
+
+常见缺字（中文图纸）：`txt8`/`hztxt2`/`geditxt`/`ARIALN` — 本仓库已用 `txt`/`hztxt`/`arial` 别名兜底；若仍不理想，把原版 `.shx` 放进 `cad-data/fonts/` 并写入同名 `fonts.json` 条目。
 | `astronomicalExtents=true` | viewExtents 天文数字，Fit 后像「全丢」；应被 sanitize 修正 |
 | `zip BEFORE/AFTER sanitize` | 清洗前后 chunks/batches/extents |
 | `page.warning Timed out waiting for scene idle` | 场景未就绪就导出，图元不完整 |

@@ -134,6 +134,28 @@ async function processImportJob(job, url, filename, headers) {
       logfile
     })
     console.log(`[import ${job.jobId}] convert log: ${logfile}`)
+    try {
+      if (existsSync(logfile)) {
+        const logText = await readFile(logfile, 'utf8')
+        const fontLines = logText
+          .split(/\r?\n/)
+          .filter((line) =>
+            /missedFonts|catalogMiss|drawing font|local cad-data miss|\[http \d+\]|requestfailed|WARN.*字体/i.test(
+              line
+            )
+          )
+        if (fontLines.length) {
+          console.log(
+            `[import ${job.jobId}] font diagnostics (${fontLines.length}):`
+          )
+          for (const line of fontLines.slice(0, 80)) {
+            console.log(`  ${line}`)
+          }
+        }
+      }
+    } catch {
+      // ignore log echo failures
+    }
 
     const zipName =
       (savedFiles || []).find((f) => f.toLowerCase().endsWith('.zip')) ||

@@ -4,7 +4,7 @@
  *   /acex-virtual/{id}/drawing.acex.json
  *   /acex-virtual/{id}/chunks/*.gz
  *
- * 文件由页面写入 Cache Storage；此处仅拦截 fetch 并原样返回字节。
+ * 优先命中 Cache Storage；未命中则回源（开发态 Vite 中间件可兜底）。
  */
 const PREFIX = '/acex-virtual/'
 
@@ -28,19 +28,22 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     (async () => {
-      // 精确匹配页面 put 进去的 URL
       const cached = await caches.match(event.request, { ignoreSearch: true })
       if (cached) return cached
 
-      // 兼容相对路径解析差异：去掉末尾多余斜杠再试
       const normalized = url.origin + url.pathname.replace(/\/+$/, '')
       const again = await caches.match(normalized)
       if (again) return again
 
-      return new Response('ACEX package file not found in cache', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-      })
+      // 缓存未命中：回源（勿直接 404，否则会挡住 Vite 虚拟目录）
+      try {
+        return await fetch(event.request)
+      } catch {
+        return new Response('ACEX package file not found in cache', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        })
+      }
     })()
   )
 })

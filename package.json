@@ -15,6 +15,7 @@
     "fflate": "0.8.3"
   },
   "devDependencies": {
-    "vite": "8.3.1"
+    "vite": "8.3.1",
+    "vite-plugin-mkcert": "^2.1.0"
   }
 }

@@ -17,6 +17,7 @@
     "@mlightcad/cad-simple-viewer-cli": "1.7.4",
     "cors": "^2.8.6",
     "express": "^5.2.1",
-    "fflate": "^0.8.3"
+    "fflate": "^0.8.3",
+    "multer": "^2.4.0"
   }
 }
