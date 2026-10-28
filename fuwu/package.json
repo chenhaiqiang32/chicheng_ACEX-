@@ -7,6 +7,7 @@
   "scripts": {
     "install:browser": "playwright install chromium",
     "convert": "node scripts/convert.mjs",
+    "detect:tianzheng": "node scripts/detect-tianzheng.mjs",
     "server": "node index.mjs",
     "start": "node index.mjs"
   },
@@ -14,7 +15,7 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@mlightcad/cad-simple-viewer-cli": "1.7.4",
+    "@mlightcad/cad-simple-viewer-cli": "1.7.5",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "fflate": "^0.8.3",

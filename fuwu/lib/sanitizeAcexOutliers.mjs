@@ -1,6 +1,7 @@
 /**
- * 转换后清洗 ACEX multi 包：剔除相对主簇离群的 batch（垃圾坐标），
+ * 转换后清洗 ACEX multi 包：剔除天文坐标，以及把视图撑大上百倍的离群 batch，
  * 并重写 meta.viewExtents / meta.extents，避免 Fit 时被撑到亚像素空白。
+ * 同一张图里的图框、说明文字只是偏离密集图元，不删。
  *
  * 算法与先前 viewer runtime 方案 B 一致：按 batch 中心做 MAD 过滤。
  */
@@ -29,6 +30,11 @@ const F_MESH_TEXTURE = 128
 const MAD_SIGMA = 1.4826
 const MAD_K = 8
 const DIAG_FLOOR_K = 100
+/**
+ * 只有离群 batch 把范围撑到主簇的这么多倍，才当成垃圾坐标删掉。
+ * 普通图框/说明文字相对密集图元只有数倍，不能删。
+ */
+const OUTLIER_INFLATE = 100
 
 class AcExBinaryWriter {
   constructor() {
@@ -442,7 +448,10 @@ function selectInlierIndices(items) {
         filtered.push(sane[si])
       }
     }
-    if (filtered.length >= Math.max(3, Math.ceil(items.length * 0.5))) {
+    if (
+      filtered.length >= Math.max(3, Math.ceil(items.length * 0.5)) &&
+      outliersInflate(items, filtered, sane)
+    ) {
       return new Set(filtered)
     }
     return new Set(sane)
@@ -471,7 +480,14 @@ function selectInlierIndices(items) {
       filtered.push(i)
     }
   }
-  if (filtered.length >= Math.max(3, Math.ceil(items.length * 0.5))) {
+  if (
+    filtered.length >= Math.max(3, Math.ceil(items.length * 0.5)) &&
+    outliersInflate(
+      items,
+      filtered,
+      items.map((_, i) => i)
+    )
+  ) {
     return new Set(filtered)
   }
   return kept
@@ -490,6 +506,21 @@ function unionBoxes(boxes) {
     if (b.maxY > maxY) maxY = b.maxY
   }
   return { minX, minY, maxX, maxY }
+}
+
+/** 离群点是否把范围撑得远大于主簇。图框相对密集图元只有数倍时返回 false。 */
+function outliersInflate(items, coreIndices, fullIndices) {
+  const core = unionBoxes(coreIndices.map((i) => items[i].box))
+  const full = unionBoxes(fullIndices.map((i) => items[i].box))
+  if (!core || !full) return false
+  const coreW = core.maxX - core.minX
+  const coreH = core.maxY - core.minY
+  const fullW = full.maxX - full.minX
+  const fullH = full.maxY - full.minY
+  return (
+    (coreW > 1e-9 && fullW / coreW >= OUTLIER_INFLATE) ||
+    (coreH > 1e-9 && fullH / coreH >= OUTLIER_INFLATE)
+  )
 }
 
 function isSafeZipPath(p) {

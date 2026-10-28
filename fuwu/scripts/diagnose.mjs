@@ -122,8 +122,8 @@ const report = {
   hints: []
 }
 
-if (report.cli !== '1.7.4') {
-  report.hints.push(`CLI 版本是 ${report.cli}，本地对照基线为 1.7.4`)
+if (report.cli !== '1.7.5') {
+  report.hints.push(`CLI 版本是 ${report.cli}，本地对照基线为 1.7.5`)
 }
 if (!report.chromePath) {
   report.hints.push('未找到系统 Chrome/Edge — 易落到旧 Chromium → chunks~80')

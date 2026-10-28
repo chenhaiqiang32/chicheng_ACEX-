@@ -11,11 +11,15 @@ import cors from 'cors'
 import express from 'express'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { networkInterfaces } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runHeadless } from './lib/runHeadlessLocal.mjs'
+import {
+  getT3Health,
+  maybeConvertTianzhengToT3
+} from './lib/t3Convert.mjs'
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url))
 const WORK = path.join(ROOT, '.cad-work')
@@ -24,7 +28,7 @@ const SCRIPT = path.join(ROOT, 'scripts', 'export-html-multi.scr')
 const PORT = Number(process.env.PORT || 8788)
 const FONTS_JSON = path.join(CAD_DATA, 'fonts', 'fonts.json')
 
-/** @typedef {'pending'|'downloading'|'converting'|'ready'|'failed'} JobPhase */
+/** @typedef {'pending'|'downloading'|'preprocessing'|'converting'|'ready'|'failed'} JobPhase */
 
 /**
  * @typedef {object} ImportJob
@@ -35,6 +39,8 @@ const FONTS_JSON = path.join(CAD_DATA, 'fonts', 'fonts.json')
  * @property {string|null} zipPath
  * @property {string|null} zipName
  * @property {string|null} filename
+ * @property {number|null} sourceFileSize 源文件字节数
+ * @property {number|null} convertedFileSize 转换后 zip 字节数
  * @property {number} createdAt
  */
 
@@ -66,7 +72,7 @@ function assertDrawingFilename(filename) {
 }
 
 /**
- * 轮询对外 status：ready / failed；转换中（pending|downloading|converting）返回 null
+ * 轮询对外 status：ready / failed；转换中（pending|downloading|preprocessing|converting）返回 null
  * @param {ImportJob} job
  */
 function publicStatus(job) {
@@ -119,15 +125,27 @@ async function processImportJob(job, url, filename, headers) {
     const drawing = await downloadDrawing(url, headers, filename)
     job.filename = drawing.filename
     job.fileId = drawing.fileId
+    job.sourceFileSize = drawing.bytes.length
 
     const ext = path.extname(drawing.filename).toLowerCase() || '.dwg'
     const inputPath = path.join(outDir, `input${ext}`)
     await writeFile(inputPath, drawing.bytes)
 
+    // 天正 DWG → T3 预处理（非天正跳过）；见 docs/tianzheng-t3.md
+    job.phase = 'preprocessing'
+    const t3 = await maybeConvertTianzhengToT3(inputPath, outDir)
+    console.log(
+      `[import ${job.jobId}] t3 preprocess: converted=${t3.converted} skipped=${t3.skipped} reason=${t3.reason}` +
+        (t3.detect
+          ? ` matches=${t3.detect.matches.map((m) => m.signature).join(',') || '(none)'}`
+          : '') +
+        (t3.durationMs != null ? ` durationMs=${t3.durationMs}` : '')
+    )
+
     job.phase = 'converting'
     const logfile = path.join(outDir, 'convert.log')
     const { outputDir, savedFiles } = await runHeadless({
-      inputPath,
+      inputPath: t3.inputPath,
       scriptPath: SCRIPT,
       outputDir: outDir,
       mode: 'read',
@@ -171,6 +189,7 @@ async function processImportJob(job, url, filename, headers) {
 
     job.zipPath = zipPath
     job.zipName = path.basename(zipPath)
+    job.convertedFileSize = (await stat(zipPath)).size
     // sanitize 已在 runHeadless 导出 zip 后执行；勿再跑第二次（MAD 非幂等会级联误删）
     job.phase = 'ready'
     job.errorMessage = null
@@ -179,6 +198,8 @@ async function processImportJob(job, url, filename, headers) {
     job.phase = 'failed'
     const msg = err instanceof Error ? err.message : String(err)
     if (/download failed/i.test(msg)) {
+      job.errorMessage = msg
+    } else if (/T3 conversion failed/i.test(msg) || /t3conv\.exe not found/i.test(msg)) {
       job.errorMessage = msg
     } else if (/conversion failed/i.test(msg)) {
       job.errorMessage = msg
@@ -197,12 +218,14 @@ app.use(express.json({ limit: '2mb' }))
 app.get('/api/health', (_req, res) => {
   const script = existsSync(SCRIPT)
   const fonts = existsSync(FONTS_JSON)
+  const t3 = getT3Health()
   res.json({
     ok: script && fonts,
     script,
     fonts,
     fontsMode: 'local',
-    cadData: '/cad-data/'
+    cadData: '/cad-data/',
+    t3
   })
 })
 
@@ -267,6 +290,8 @@ app.post('/api/models/import', (req, res) => {
     zipPath: null,
     zipName: null,
     filename: filename || null,
+    sourceFileSize: null,
+    convertedFileSize: null,
     createdAt: Date.now()
   }
   jobs.set(jobId, job)
@@ -306,6 +331,8 @@ app.get('/api/models/import/:jobId/status', (req, res) => {
       jobId: job.jobId,
       status,
       fileId: status === 'ready' ? job.fileId : null,
+      sourceFileSize: status === 'ready' ? job.sourceFileSize : null,
+      convertedFileSize: status === 'ready' ? job.convertedFileSize : null,
       errorMessage: status === 'failed' ? job.errorMessage : null
     }
   })

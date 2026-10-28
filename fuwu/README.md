@@ -10,13 +10,16 @@ fuwu/
   lib/
     runHeadlessLocal.mjs    # 无头转换：baseUrl './cad-data/' 本地字体/模板
     sanitizeAcexOutliers.mjs # 转换后剔除离群垃圾坐标并重写 viewExtents
+    t3Convert.mjs           # 天正签名检测 + t3-conv 预处理
   package.json
   cad-data/                 # 自托管字体与模板（转换 + 静态 /cad-data）
   scripts/
     export-html-multi.scr
     convert.mjs
+    detect-tianzheng.mjs    # 仅检测 DWG 是否含天正签名
   docs/
     convert-api.md
+    tianzheng-t3.md         # 天正→T3 部署 / 检测 / 代码说明
 ```
 
 ## 字体（本地，不依赖外网）
@@ -85,11 +88,32 @@ npm run server
 
 健康检查：`GET http://localhost:8787/api/health`  
 期望：`{ "ok": true, "script": true, "fonts": true, "fontsMode": "local" }`  
-`fonts: false` 时不要调转换（本地字体目录不完整）。
+`fonts: false` 时不要调转换（本地字体目录不完整）。  
+响应中的 `t3` 字段表示天正预处理是否就绪（见下节）。
+
+## 天正 DWG → T3 预处理（可选，Windows）
+
+对齐 [Supporting Tianzheng DWG Drawings](https://github.com/mlightcad/cad-viewer/wiki/Supporting-Tianzheng-DWG-Drawings)：先检测天正签名，命中才调用 [t3-conv](https://github.com/housyty/t3-conv)，非天正图跳过。
+
+详细步骤（安装天正/AutoCAD、配置 ini、检测流程、代码解释、排障）：见 **[docs/tianzheng-t3.md](./docs/tianzheng-t3.md)**。
+
+快速配置（管理员终端，路径按本机修改）：
+
+```bat
+set T3_MODE=auto
+set T3CONV_EXE=D:\work\tianzheng\t3-conv\t3conv.exe
+npm run server
+```
+
+```bash
+# 仅检测样图是否含天正签名
+npm run detect:tianzheng -- "D:\work\tianzheng\Drawing2.dwg"
+```
 
 ## 迁移到其它机器
 
-拷贝整个 `fuwu/`（含 **完整** `cad-data/`，**不要**跨平台拷贝 `node_modules`），在目标机重新 `npm install` 与 `install:browser`。
+拷贝整个 `fuwu/`（含 **完整** `cad-data/`，**不要**跨平台拷贝 `node_modules`），在目标机重新 `npm install` 与 `install:browser`。  
+若需天正预处理，目标机还必须是 Windows，并单独安装天正 T20 V9、AutoCAD 2020/2021 与英文路径下的 t3-conv。
 
 ## CLI 批量转换（可选）
 
@@ -97,7 +121,7 @@ npm run server
 npm run convert -- ./drawings ./out
 ```
 
-同样走本地 `cad-data` 字体。
+同样走本地 `cad-data` 字体；DWG 会先按 `T3_MODE` 做天正预处理。
 
 ## API
 

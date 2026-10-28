@@ -72,6 +72,18 @@ function resolveUnderRoot(root, relativeUrlPath) {
   return filePath
 }
 
+async function readRequestBody(req) {
+  const chunks = []
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
+  }
+  return Buffer.concat(chunks)
+}
+
+/**
+ * 静态服务：runner + 本地 cad-data + CLI 1.7.5 图纸挂载 / 导出落盘
+ * （runCadScript 第二参改为 URL fetch，导出经 POST /__cli_save__/）
+ */
 function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
   const idleTimeoutMs = Number(opts.idleTimeoutMs) > 0 ? Number(opts.idleTimeoutMs) : 600_000
 
@@ -83,13 +95,17 @@ function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
     }
     let text = body.toString('utf8')
     const before = text
-    // CLI / 转换：常量 12e4（120s）→ 自定义毫秒（1.7.4: Tre / XRe；1.7.3: Qie / K3e；1.7.1: rge / fke）
+    // CLI / 转换：常量 12e4（120s）→ 自定义毫秒
+    // 1.7.5: Boe / pDe；1.7.4: Tre / XRe；1.7.3: Qie / K3e；1.7.1: rge / fke
+    text = text.replace(/\bBoe=12e4\b/g, `Boe=${idleTimeoutMs}`)
+    text = text.replace(/\bpDe=12e4\b/g, `pDe=${idleTimeoutMs}`)
     text = text.replace(/\bTre=12e4\b/g, `Tre=${idleTimeoutMs}`)
     text = text.replace(/\bXRe=12e4\b/g, `XRe=${idleTimeoutMs}`)
     text = text.replace(/\bQie=12e4\b/g, `Qie=${idleTimeoutMs}`)
     text = text.replace(/\bK3e=12e4\b/g, `K3e=${idleTimeoutMs}`)
     text = text.replace(/const rge=12e4\b/g, `const rge=${idleTimeoutMs}`)
     text = text.replace(/const fke=12e4\b/g, `const fke=${idleTimeoutMs}`)
+    text = text.replace(/timeOut=e\.timeOut\?\?12e4/g, `timeOut=e.timeOut??${idleTimeoutMs}`)
     // View：waitUntilIdle(t|e=6e4) 默认 60s
     text = text.replace(/waitUntilIdle\(t=6e4\)/g, `waitUntilIdle(t=${idleTimeoutMs})`)
     text = text.replace(/waitUntilIdle\(e=6e4\)/g, `waitUntilIdle(e=${idleTimeoutMs})`)
@@ -102,11 +118,59 @@ function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
   }
 
   return new Promise((resolve, reject) => {
-    const server = createServer((req, res) => {
-      try {
-        const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0])
-        let filePath = null
+    /** @type {Map<string, string>} */
+    const mountedInputs = new Map()
+    let saveDir = null
+    /** @type {string[]} */
+    let savedFiles = []
+    let mountSeq = 0
 
+    const server = createServer((req, res) => {
+      void handleRequest(req, res)
+    })
+
+    async function handleRequest(req, res) {
+      try {
+        const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0] ?? '/')
+
+        if (req.method === 'POST' && urlPath.startsWith('/__cli_save__/')) {
+          if (!saveDir) {
+            res.writeHead(500)
+            res.end('Save directory not configured')
+            return
+          }
+          const fileName = path.basename(urlPath.slice('/__cli_save__/'.length))
+          if (!fileName) {
+            res.writeHead(400)
+            res.end('Missing file name')
+            return
+          }
+          const body = await readRequestBody(req)
+          const dest = uniqueOutputPath(saveDir, fileName)
+          await writeFile(dest, body)
+          savedFiles.push(dest)
+          res.writeHead(204)
+          res.end()
+          return
+        }
+
+        if (urlPath.startsWith('/__cli_input__/')) {
+          const absolute = mountedInputs.get(urlPath)
+          if (!absolute || !existsSync(absolute)) {
+            res.writeHead(404)
+            res.end()
+            return
+          }
+          const body = await readFile(absolute)
+          res.setHeader('Content-Type', contentTypeFor(absolute))
+          res.setHeader('Content-Length', String(body.byteLength))
+          res.setHeader('Access-Control-Allow-Origin', '*')
+          res.writeHead(200)
+          res.end(body)
+          return
+        }
+
+        let filePath = null
         if (urlPath.startsWith('/cad-data/')) {
           filePath = resolveUnderRoot(
             cadDataRoot,
@@ -127,19 +191,18 @@ function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
 
         res.setHeader('Content-Type', contentTypeFor(filePath))
         res.setHeader('Access-Control-Allow-Origin', '*')
-        void readFile(filePath).then((body) => {
-          const out =
-            path.extname(filePath).toLowerCase() === '.js'
-              ? patchRunnerJs(filePath, body)
-              : body
-          res.writeHead(200)
-          res.end(out)
-        })
+        const body = await readFile(filePath)
+        const out =
+          path.extname(filePath).toLowerCase() === '.js'
+            ? patchRunnerJs(filePath, body)
+            : body
+        res.writeHead(200)
+        res.end(out)
       } catch (error) {
         res.writeHead(500)
         res.end(String(error))
       }
-    })
+    }
 
     server.listen(0, '127.0.0.1', () => {
       const address = server.address()
@@ -147,9 +210,27 @@ function startStaticServer(runnerRoot, cadDataRoot, opts = {}) {
         reject(new Error('Failed to start static server for CLI runner.'))
         return
       }
+      const baseUrl = `http://127.0.0.1:${address.port}`
       resolve({
-        url: `http://127.0.0.1:${address.port}`,
+        url: baseUrl,
         idleTimeoutMs,
+        mountInput: (absolutePath) => {
+          const token = String(++mountSeq)
+          const urlPath = `/__cli_input__/${token}`
+          mountedInputs.set(urlPath, absolutePath)
+          return `${baseUrl}${urlPath}`
+        },
+        setSaveDir: (dir) => {
+          saveDir = dir
+        },
+        takeSavedFiles: () => {
+          const files = savedFiles
+          savedFiles = []
+          return files
+        },
+        resetSavedFiles: () => {
+          savedFiles = []
+        },
         close: () =>
           new Promise((closeResolve, closeReject) => {
             server.close((err) => (err ? closeReject(err) : closeResolve()))
@@ -206,8 +287,10 @@ function drawingNameFromUrl(urlString) {
 }
 
 /**
+ * CLI 1.7.5：图纸以本地绝对路径挂载给 runner fetch（远程 URL 先落到 outputDir，避免 CORS）。
  * @param {string} inputPath
- * @param {{ headers?: Record<string, string>, filename?: string }} [opts]
+ * @param {{ headers?: Record<string, string>, filename?: string, stagingDir?: string }} [opts]
+ * @returns {Promise<{ label: string, fileName: string, absolutePath: string, bytes: number }>}
  */
 async function loadDrawingInput(inputPath, opts = {}) {
   if (isHttpUrl(inputPath)) {
@@ -234,10 +317,17 @@ async function loadDrawingInput(inputPath, opts = {}) {
       )
     }
     const bytes = Buffer.from(await response.arrayBuffer())
+    const stagingDir = opts.stagingDir
+      ? path.resolve(opts.stagingDir)
+      : process.cwd()
+    await mkdir(stagingDir, { recursive: true })
+    const absolutePath = path.join(stagingDir, `_cli_input_${fileName}`)
+    await writeFile(absolutePath, bytes)
     return {
       label: inputPath,
       fileName,
-      base64: bytes.toString('base64')
+      absolutePath,
+      bytes: bytes.byteLength
     }
   }
 
@@ -249,11 +339,11 @@ async function loadDrawingInput(inputPath, opts = {}) {
   if (!existsSync(absoluteInput)) {
     throw new Error(`Input drawing not found: ${absoluteInput}`)
   }
-  const fileBytes = await readFile(absoluteInput)
   return {
     label: absoluteInput,
     fileName: path.basename(absoluteInput),
-    base64: fileBytes.toString('base64')
+    absolutePath: absoluteInput,
+    bytes: statSync(absoluteInput).size
   }
 }
 
@@ -310,7 +400,11 @@ function inspectCadData() {
 function packageVersions() {
   const out = {}
   try {
-    out.cli = require('@mlightcad/cad-simple-viewer-cli/package.json').version
+    // 1.7.5+ package exports 不暴露 package.json，从入口反推
+    const entry = require.resolve('@mlightcad/cad-simple-viewer-cli')
+    const root = path.resolve(path.dirname(entry), '..')
+    out.cli = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf8'))
+      .version
   } catch {
     out.cli = '?'
   }
@@ -571,26 +665,32 @@ export async function runHeadless(options) {
     throw new Error(`Script not found: ${absoluteScript}`)
   }
 
+  const outputDirPreview = path.resolve(
+    options.outputDir ??
+      (options.inputPath && !isHttpUrl(options.inputPath)
+        ? path.dirname(path.resolve(options.inputPath))
+        : process.cwd())
+  )
+  await mkdir(outputDirPreview, { recursive: true })
+
   let absoluteInput
   let fileName = null
-  let base64 = null
+  /** @type {string|null} */
+  let mountPath = null
+  let inputBytes = 0
   if (options.inputPath) {
     const drawing = await loadDrawingInput(options.inputPath, {
       headers: options.headers,
-      filename: options.filename
+      filename: options.filename,
+      stagingDir: outputDirPreview
     })
     absoluteInput = drawing.label
     fileName = drawing.fileName
-    base64 = drawing.base64
+    mountPath = drawing.absolutePath
+    inputBytes = drawing.bytes
   }
 
-  const outputDir = path.resolve(
-    options.outputDir ??
-      (absoluteInput && !isHttpUrl(absoluteInput)
-        ? path.dirname(absoluteInput)
-        : process.cwd())
-  )
-  await mkdir(outputDir, { recursive: true })
+  const outputDir = outputDirPreview
 
   if (!existsSync(path.join(RUNNER_DIR, 'index.html'))) {
     throw new Error(
@@ -630,7 +730,7 @@ export async function runHeadless(options) {
   await dbg(
     logfile,
     `input=${absoluteInput ?? '(blank)'} file=${fileName ?? '-'} ` +
-      `bytes=${base64 ? Buffer.byteLength(base64, 'base64') : 0} ` +
+      `bytes=${inputBytes} mount=${mountPath ?? '-'} ` +
       `script=${absoluteScript} output=${outputDir} ` +
       `openViewMode=${openViewMode} drawNoPlotLayers=${drawNoPlotLayers ?? '(default)'} ` +
       `circleSides=${circleSides ?? '(default)'}`
@@ -654,6 +754,14 @@ export async function runHeadless(options) {
 
   const server = await startStaticServer(RUNNER_DIR, CAD_DATA, { idleTimeoutMs })
   const localCadDataBaseUrl = LOCAL_CAD_DATA_BASE_URL
+  server.setSaveDir(outputDir)
+  server.resetSavedFiles()
+  /** @type {string|null} */
+  let drawingUrl = null
+  if (mountPath) {
+    drawingUrl = server.mountInput(mountPath)
+  }
+
   const { browser, channel, executablePath, args } = await launchBrowser()
   let browserVersion = '?'
   try {
@@ -670,6 +778,7 @@ export async function runHeadless(options) {
     `[convert] using system browser: ${channel}${executablePath ? ` @ ${executablePath}` : ''} (v${browserVersion})`
   )
 
+  /** @type {string[]} */
   const savedFiles = []
   let cadDataMisses = 0
   /** @type {string[]} */
@@ -718,16 +827,18 @@ export async function runHeadless(options) {
       }
     })
 
-    await dbg(logfile, `goto ${server.url}/index.html baseUrl=${localCadDataBaseUrl}`)
+    await dbg(
+      logfile,
+      `goto ${server.url}/index.html baseUrl=${localCadDataBaseUrl} drawingUrl=${drawingUrl ?? '(blank)'}`
+    )
     await page.goto(`${server.url}/index.html`, { waitUntil: 'networkidle' })
 
-    let result
     const tScript = Date.now()
     try {
-      result = await page.evaluate(
+      await page.evaluate(
         async ({
           name,
-          data,
+          drawingUrl: url,
           script,
           locale,
           mode: openMode,
@@ -735,35 +846,23 @@ export async function runHeadless(options) {
           openViewMode: viewMode,
           drawNoPlotLayers: noPlot,
           circleSides: sides,
-          baseUrl
+          baseUrl,
+          saveBaseUrl
         }) => {
-          const runOptions = {
+          return window.runCadScript(name, url, script, {
             locale,
             mode: openMode,
+            startBlank,
             openViewMode: viewMode,
             drawNoPlotLayers: noPlot,
             circleSides: sides,
-            baseUrl
-          }
-          if (data == null || name == null) {
-            return window.runCadScript(null, null, script, {
-              ...runOptions,
-              startBlank
-            })
-          }
-          const binary = atob(data)
-          const bytes = new Uint8Array(binary.length)
-          for (let i = 0; i < binary.length; i++) {
-            bytes[i] = binary.charCodeAt(i)
-          }
-          return window.runCadScript(name, bytes, script, {
-            ...runOptions,
-            startBlank: false
+            baseUrl,
+            saveBaseUrl
           })
         },
         {
           name: fileName,
-          data: base64,
+          drawingUrl,
           script: scriptText,
           locale: options.locale,
           mode,
@@ -771,7 +870,8 @@ export async function runHeadless(options) {
           openViewMode,
           drawNoPlotLayers,
           circleSides,
-          baseUrl: localCadDataBaseUrl
+          baseUrl: localCadDataBaseUrl,
+          saveBaseUrl: `${server.url}/__cli_save__/`
         }
       )
     } catch (error) {
@@ -780,9 +880,11 @@ export async function runHeadless(options) {
       for (const m of pageMessages.slice(-30)) await appendLog(logfile, m)
       throw error
     }
+
+    const exported = server.takeSavedFiles()
     await dbg(
       logfile,
-      `script done in ${Date.now() - tScript}ms files=${result?.files?.length ?? 0}`
+      `script done in ${Date.now() - tScript}ms files=${exported.length}`
     )
     const idleTimedOut = pageMessages.some((m) =>
       /Timed out waiting for (scene idle|deferred geometry)/i.test(m)
@@ -797,10 +899,7 @@ export async function runHeadless(options) {
       )
     }
 
-    for (const file of result.files) {
-      const dest = uniqueOutputPath(outputDir, file.fileName)
-      await writeFile(dest, Buffer.from(file.base64, 'base64'))
-
+    for (const dest of exported) {
       if (dest.toLowerCase().endsWith('.zip')) {
         const before = await inspectAcexZip(dest)
         await dbg(logfile, `zip BEFORE sanitize ${JSON.stringify(before)}`)
@@ -833,7 +932,7 @@ export async function runHeadless(options) {
         if (
           typeof after.totalBatches === 'number' &&
           after.totalBatches < 20 &&
-          (base64 ? Buffer.byteLength(base64, 'base64') : 0) > 500_000
+          inputBytes > 500_000
         ) {
           await dbg(
             logfile,

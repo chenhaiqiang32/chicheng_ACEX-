@@ -2,12 +2,14 @@
 /**
  * 服务端 / CI 批量转换
  * 使用 @mlightcad/cad-simple-viewer-cli 无头导出 multi ACEX zip
+ * DWG 若含天正实体，先经 t3-conv 转 T3 再导出（与 HTTP 服务同一套预处理）
  *
  * Usage:
  *   node scripts/convert.mjs <drawing.dwg|dxf|dir> [outputDir]
  *   npm run convert -- ./drawings ./out
  */
 import { runHeadless } from '../lib/runHeadlessLocal.mjs'
+import { maybeConvertTianzhengToT3 } from '../lib/t3Convert.mjs'
 import { existsSync } from 'node:fs'
 import { mkdir, readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -43,8 +45,23 @@ async function collectDrawings(inputPath) {
 
 async function convertOne(inputPath, outputDir) {
   console.log(`\n=== Converting: ${inputPath} ===`)
+  const workDir = path.join(
+    outputDir,
+    '.t3-work',
+    path.basename(inputPath, path.extname(inputPath))
+  )
+  await mkdir(workDir, { recursive: true })
+
+  const t3 = await maybeConvertTianzhengToT3(inputPath, workDir)
+  console.log(
+    `T3: converted=${t3.converted} skipped=${t3.skipped} reason=${t3.reason}` +
+      (t3.detect
+        ? ` matches=${t3.detect.matches.map((m) => m.signature).join(',') || '(none)'}`
+        : '')
+  )
+
   const { outputDir: out, savedFiles } = await runHeadless({
-    inputPath,
+    inputPath: t3.inputPath,
     scriptPath: SCRIPT,
     outputDir,
     mode: 'read'

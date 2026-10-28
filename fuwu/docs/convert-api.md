@@ -120,6 +120,8 @@ GET /api/models/import/:jobId/status
     "jobId": "3f2a1c9e-7b40-4d2e-9a11-8c5f0b2d6e77",
     "status": "ready",
     "fileId": "60bb0ee9f0658d1d675b55feefc4f136",
+    "sourceFileSize": 2457600,
+    "convertedFileSize": 812344,
     "errorMessage": null
   }
 }
@@ -129,6 +131,8 @@ GET /api/models/import/:jobId/status
 | --- | --- |
 | `status` | `ready` 成功；`failed` 失败；转换中为 `null` |
 | `fileId` | 下载源文件内容的 MD5；仅 `ready` 时有值，否则 `null` |
+| `sourceFileSize` | 源文件字节数；仅 `ready` 时有值，否则 `null` |
+| `convertedFileSize` | 转换后 zip 字节数；仅 `ready` 时有值，否则 `null` |
 | `errorMessage` | 失败原因（如下载失败 / 转换失败）；仅 `failed` 时非空 |
 
 ### 调用示例
@@ -218,16 +222,34 @@ GET /api/health
 ```
 
 ```json
-{ "ok": true, "script": true, "fonts": true, "fontsMode": "local", "cadData": "/cad-data/" }
+{
+  "ok": true,
+  "script": true,
+  "fonts": true,
+  "fontsMode": "local",
+  "cadData": "/cad-data/",
+  "t3": {
+    "mode": "auto",
+    "exe": "D:\\work\\tianzheng\\t3-conv\\t3conv.exe",
+    "exeExists": true,
+    "timeoutSeconds": 600,
+    "platform": "win32",
+    "ready": true
+  }
+}
 ```
 
-`ok: true` 表示脚本与本地 `cad-data/fonts/fonts.json` 都就绪后再调转换。转换强制使用本地字体，不访问 CDN。
+`ok: true` 表示脚本与本地 `cad-data/fonts/fonts.json` 都就绪后再调转换。转换强制使用本地字体，不访问 CDN。  
+`t3` 为天正→T3 预处理状态（详见 [tianzheng-t3.md](./tianzheng-t3.md)）；未配置 `T3CONV_EXE` 时 `exeExists` 可能为 `false`，普通非天正图仍可转换。
+
+导入任务内部阶段：`pending` → `downloading` → `preprocessing`（天正检测/T3）→ `converting` → `ready` / `failed`。对外轮询时，除 `ready` / `failed` 外一律为 `null`。
 
 ---
 
 ## 7. 注意
 
 - 转换依赖 headless Chromium，耗时随图纸变大；请用状态接口轮询，不要把客户端超时设得过短  
+- 含天正实体的 DWG 会先跑 t3-conv，耗时可能再增加数秒至数分钟  
 - 转换字体来自本机 `fuwu/cad-data/`，部署时勿漏拷；健康检查 `fonts: true` 再上线  
 - 转换完成后会清洗 ACEX 包中的离群垃圾坐标（重写 `viewExtents` 并剔除异常 batch），避免预渲染 Fit 空白  
 - CORS 已开启，浏览器也可直连；生产建议由业务后端调用并落盘  
