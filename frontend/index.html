@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ACEX 预渲染 · html-exporter Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header class="hero">
+        <p class="eyebrow">cad-html-exporter · Node prerender</p>
+        <h1>URL 导入 · 轮询 · 下载 ZIP</h1>
+        <p class="lead">
+          对接本目录转换服务（纯 Node，无浏览器）：
+          <code>POST /api/models/import</code>
+          →
+          <code>GET …/status</code>
+          →
+          <code>GET …/download?type=zip</code>。
+          本地可用 zip 解压打开，或填写服务端
+          <code>drawing.acex.json</code> 地址打开。
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="convert-title">
+        <h2 id="convert-title">1. 按 URL 导入转换</h2>
+        <p class="hint">
+          提交可访问的 <code>.dwg</code> / <code>.dxf</code> 在线地址；服务异步下载并用
+          <code>@mlightcad/cad-html-exporter</code> 转换，前端轮询
+          <code>status</code>（<code>null</code> 转换中 / <code>ready</code> 成功 /
+          <code>failed</code> 失败）。
+        </p>
+        <form id="convert-form" class="stack">
+          <label class="field">
+            <span>图纸 URL</span>
+            <input
+              id="dwg-url"
+              type="url"
+              name="url"
+              required
+              placeholder="https://oss.example.com/canteen.dwg"
+              autocomplete="off"
+            />
+          </label>
+          <label class="field">
+            <span>文件名（可选，含扩展名）</span>
+            <input
+              id="dwg-filename"
+              type="text"
+              name="filename"
+              placeholder="canteen.dwg"
+              autocomplete="off"
+            />
+          </label>
+          <div class="row">
+            <button type="submit" id="convert-btn">提交导入并等待结果</button>
+          </div>
+        </form>
+        <p id="convert-status" class="status" role="status"></p>
+      </section>
+
+      <section class="panel" aria-labelledby="open-title">
+        <h2 id="open-title">2. 前端解压并打开</h2>
+        <p class="hint">
+          选择 multi ACEX <code>.zip</code>。在浏览器内解压并通过 Service Worker 打开（不写服务端落盘）。
+        </p>
+        <form id="open-form" class="row">
+          <label class="file">
+            <input id="zip-input" type="file" accept=".zip,application/zip" required />
+            <span>选择 ACEX .zip</span>
+          </label>
+          <button type="submit" id="open-btn">解压并打开</button>
+        </form>
+        <p id="open-status" class="status" role="status"></p>
+        <ul id="file-list" class="file-list" hidden></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="json-open-title">
+        <h2 id="json-open-title">3. 通过 JSON 地址打开</h2>
+        <p class="hint">
+          服务端已解压落盘时，填写可访问的
+          <code>drawing.acex.json</code> 地址。将打开同目录
+          <code>viewer.html</code>，由查看器按相对路径拉取
+          <code>chunks/</code>。
+        </p>
+        <form id="json-open-form" class="stack">
+          <label class="field">
+            <span>drawing.acex.json URL</span>
+            <input
+              id="json-url"
+              type="url"
+              name="jsonUrl"
+              required
+              placeholder="https://example.com/published/canteen/drawing.acex.json"
+              autocomplete="off"
+            />
+          </label>
+          <div class="row">
+            <button type="submit" id="json-open-btn">打开查看器</button>
+          </div>
+        </form>
+        <p id="json-open-status" class="status" role="status"></p>
+      </section>
+
+      <section class="panel muted">
+        <h2>说明</h2>
+        <ul>
+          <li>转换成功后下载地址为 <code>/api/models/{jobId}/download?type=zip</code>。</li>
+          <li>Zip 只用于分发；查看器 fetch 的是解压后的 <code>viewer.html</code> + <code>drawing.acex.json</code> + <code>chunks/</code>。</li>
+          <li>JSON 打开要求同目录存在 <code>viewer.html</code>，且 <code>chunks/</code> 相对路径可访问。</li>
+          <li><code>.gz</code> 块必须以原始字节返回，不要带 <code>Content-Encoding: gzip</code>。</li>
+          <li>开发时先启动同级转换服务：<code>cd html-exporter &amp;&amp; npm run server</code>（默认 <code>:8787</code>），再在仓库根目录 <code>npm run dev</code>。</li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

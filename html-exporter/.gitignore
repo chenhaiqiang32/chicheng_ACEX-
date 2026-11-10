@@ -1,0 +1,8 @@
+node_modules/
+.cad-work/
+out/
+logs/
+*.log
+.DS_Store
+cad-data/*
+!cad-data/README.md

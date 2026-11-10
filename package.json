@@ -1,0 +1,21 @@
+{
+  "name": "acex-html-exporter-demo",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ACEX multi-package frontend demo (转换服务见 html-exporter/，可单独部署)",
+  "scripts": {
+    "dev": "vite --config frontend/vite.config.js",
+    "build": "vite build --config frontend/vite.config.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "vite": "8.3.1",
+    "vite-plugin-mkcert": "^2.1.0"
+  }
+}

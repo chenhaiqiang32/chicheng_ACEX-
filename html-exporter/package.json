@@ -1,0 +1,31 @@
+{
+  "name": "acex-html-exporter-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "ACEX DWG/DXF → multi zip 转换服务（可单独部署到 Windows）",
+  "scripts": {
+    "postinstall": "node scripts/sync-cad-data.mjs",
+    "sync:cad-data": "node scripts/sync-cad-data.mjs",
+    "convert": "node scripts/convert.mjs",
+    "detect:tianzheng": "node scripts/detect-tianzheng.mjs",
+    "server": "node index.mjs",
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@mlightcad/cad-html-exporter": "1.7.8",
+    "@mlightcad/data-model": "1.15.21",
+    "@napi-rs/canvas": "^1.1.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0"
+  },
+  "optionalDependencies": {
+    "@mlightcad/dwg-converter": "https://npm.pkg.github.com/download/@mlightcad/dwg-converter/1.15.21/3db2e75205e2abaf36d9dc3c87e6a65baabeb4b1"
+  },
+  "overrides": {
+    "@mlightcad/data-model": "1.15.21"
+  }
+}
